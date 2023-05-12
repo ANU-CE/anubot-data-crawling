@@ -6,6 +6,18 @@ import pyodbc
 import sqlalchemy
 import urllib
 
+#for Dev
+from dotenv import load_dotenv
+import os
+
+load_dotenv(verbose=True)
+DB_USERNAME = os.getenv('DB_USERNAME')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
+DB_HOST = os.getenv('DB_HOST')
+DB_PORT = os.getenv('DB_PORT')
+DB_DATABASE = os.getenv('DB_DATABASE')
+
+
 # body > div.container.page-content > div.w3-responsive > table > tbody > tr:nth-child(1) > th:nth-child(1) 월요일
 # body > div.container.page-content > div.w3-responsive > table > tbody > tr:nth-child(1) > th:nth-child(2) 아침
 # body > div.container.page-content > div.w3-responsive > table > tbody > tr:nth-child(1) > td 메뉴~~~
@@ -40,18 +52,9 @@ for i in range(0, 7, 1):
 df = pd.DataFrame(dorm_menu_arr, columns=['date', 'day', 'breakfast', 'lunch', 'dinner'])
 df.to_csv('dorm_menu.csv', index=False, encoding='utf-8-sig')
 
-#upload to mssql server
-
-
-# MSSQL 접속
-
-
-# DB 접속 엔진
-engine = sqlalchemy.create_engine(f"mssql+pymssql://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE}?charset=utf8mb4",echo=True)
-
-# DB 테이블에 데이터프레임 추가, 열 이름은 영어로
-df.to_sql(name='data_dorm_menu', con=engine, if_exists='replace', index=False, index_label='date', method=None)
-
-
-# MSSQL 접속 종료
-engine.dispose()
+# MSSQL DB에 업로드
+params = urllib.parse.quote_plus("DRIVER={ODBC Driver 17 for SQL Server};SERVER="+DB_HOST+","+DB_PORT+";DATABASE="+DB_DATABASE+";UID="+DB_USERNAME+";PWD="+DB_PASSWORD)
+engine = sqlalchemy.create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
+conn = engine.connect()
+df.to_sql('anu-dorm-menu', con=engine, if_exists='replace', index=False)
+conn.close()
