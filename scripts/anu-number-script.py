@@ -5,6 +5,7 @@
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
+from sqlalchemy import create_engine
 
 #board > div.t3.tac > table > tbody > tr:nth-child(8) > td:nth-child(1) - 대학본부
 #board > div.t3.tac > table > tbody > tr:nth-child(8) > td:nth-child(2) > span - 교무처/교무과
@@ -39,6 +40,17 @@ def getTableLink(pageNum):
         arr[r][3] = arr[r][3].replace('\r','').replace('\t','').replace('\n','')
     return r
 
+#make function to upload data to mssql using SQLalchemy engine
+
+def upload_to_mssql(df, table_name):
+    #create engine without error 'Invalid object name 'sqlite_master'
+
+    engine = create_engine(f"mssql+pyodbc://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE}?driver=ODBC+Driver+17+for+SQL+Server")
+    conn = engine.connect()
+    #upload data to mssql
+    df.to_sql(table_name, conn = engine, index=False, if_exists='replace')
+    conn.close()
+
 
 url = 'https://www.andong.ac.kr/main/board/index.do?menu_idx=104&manage_idx=45'
 
@@ -62,3 +74,5 @@ for n in range(1, number_count//10, 1):
 df = pd.DataFrame(arr, columns=['구분', '부서/학과', '직책/성명', '전화번호'])
 df.to_csv('anubot_numb.csv', encoding='utf-8-sig',index=True ,header=None)
 print(f'\n총 {r}개의 데이터를 수집했습니다. / 내보내기 완료.')
+
+upload_to_mssql(df, 'data.number')

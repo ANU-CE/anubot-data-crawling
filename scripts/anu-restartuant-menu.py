@@ -2,6 +2,9 @@ import requests
 import datetime
 from bs4 import BeautifulSoup
 import pandas as pd
+import pyodbc
+import sqlalchemy
+import urllib
 
 # body > div.container.page-content > div.w3-responsive > table > tbody > tr:nth-child(1) > th:nth-child(1) 월요일
 # body > div.container.page-content > div.w3-responsive > table > tbody > tr:nth-child(1) > th:nth-child(2) 아침
@@ -34,5 +37,21 @@ for i in range(0, 7, 1):
     dorm_menu_arr[i][3] = soup.findAll('table')[1].findAll('tr')[i*3+1].text.replace("점심","").replace(" ",", ").replace("\n",", ").replace("\r","")
     dorm_menu_arr[i][4] = soup.findAll('table')[1].findAll('tr')[i*3+2].text.replace("저녁","").replace(" ",", ").replace("\n",", ").replace("\r","")
 
-df = pd.DataFrame(dorm_menu_arr, columns=['날짜', '요일', '아침', '점심', '저녁'])
+df = pd.DataFrame(dorm_menu_arr, columns=['date', 'day', 'breakfast', 'lunch', 'dinner'])
 df.to_csv('dorm_menu.csv', index=False, encoding='utf-8-sig')
+
+#upload to mssql server
+
+
+# MSSQL 접속
+
+
+# DB 접속 엔진
+engine = sqlalchemy.create_engine(f"mssql+pymssql://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE}?charset=utf8mb4",echo=True)
+
+# DB 테이블에 데이터프레임 추가, 열 이름은 영어로
+df.to_sql(name='data_dorm_menu', con=engine, if_exists='replace', index=False, index_label='date', method=None)
+
+
+# MSSQL 접속 종료
+engine.dispose()
