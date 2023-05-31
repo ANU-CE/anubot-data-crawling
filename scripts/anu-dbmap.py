@@ -5,6 +5,16 @@ import pandas as pd
 import pyodbc
 import sqlalchemy
 import urllib
+import numpy as np
+import uuid
+
+#for vector database   
+import openai 
+import qdrant_client
+from transformers import AutoTokenizer, AutoModel
+import torch
+from qdrant_client.http import models as rest
+from ast import literal_eval
 
 #for Dev
 from dotenv import load_dotenv
@@ -21,57 +31,66 @@ def getData(linkarr):
             soup = BeautifulSoup(html, 'html.parser')
         tmparr = []
         id = linkarr[cnt].split('id=')[1]
-        tmparr.append(id)
+        #tmparr.append(id)
 
         try:
             roomname = soup.select_one('#thema_wrapper > div.at-container > div > div > div > div.item_view_box > div.item_info > div.item_title')
             roomname = roomname.text
-            region = roomname.split(' ')[0]
-            roomname = roomname.split(' ')[1]
+            #region = roomname.split(' ')[0]
+            #roomname = roomname.split(' ')[1]
         except:
-            region = ''
+            #region = ''
             roomname = ''
-        tmparr.append(region)
+        #tmparr.append(region)
         tmparr.append(roomname)
 
+        allinfo = ''
         try:
             price = soup.select_one('#thema_wrapper > div.at-container > div > div > div > div.item_view_box > div.item_info > div.item_desc')
             price = price.text
         except:
             price = ''
-        tmparr.append(price)
+        allinfo += price
+        allinfo += '\n'
         
         tmpcnt = 1
 
         while True:
             try:
                 info = soup.select_one(f'#tab1 > div:nth-child(3) > ul > li:nth-child({tmpcnt})').text
-                tmparr.append(info)
+                #tmparr.append(info)
+                allinfo += info
+                allinfo += '\n'
                 tmpcnt+=1
             except:
                 break
+            '''
         if tmpcnt < 9:
             for i in range(tmpcnt, 9):
-                tmparr.append('')
+                tmparr.append('')'''
         try:    
             description = soup.select('#tab1 > div:nth-child(6)')
             description = description.text
         except:
             description = ''
-        tmparr.append(description)
+        allinfo += description
+        allinfo += '\n'
+        tmparr.append(allinfo)
         cnt+=1
         fullarr.append(tmparr)
     return fullarr
 
 def exportData(dbname, fullarr):
-    df = pd.DataFrame(fullarr, columns=['id', 'region', 'name', 'desc', 'info0', 'info1', 'info2', 'info3', 'info4', 'info5', 'info6', 'info7', 'info8'])
+    #df = pd.DataFrame(fullarr, columns=['id', 'region', 'name', 'desc', 'info0', 'info1', 'info2', 'info3', 'info4', 'info5', 'info6', 'info7', 'info8'])
+    df = pd.DataFrame(fullarr, columns=['name', 'info'])
     df.to_csv(f'{dbname}.csv', index=False, encoding='utf-8-sig')
-    # MSSQL DB에 업로드
+    '''# MSSQL DB에 업로드
     params = urllib.parse.quote_plus("DRIVER={ODBC Driver 17 for SQL Server};SERVER="+DB_HOST+","+DB_PORT+";DATABASE="+DB_DATABASE+";UID="+DB_USERNAME+";PWD="+DB_PASSWORD)
     engine = sqlalchemy.create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
     conn = engine.connect()
     df.to_sql(dbname, con=engine, if_exists='replace', index=False)
-    conn.close()
+    conn.close()'''
+    print(f'{dbname} export complete')
 
 def getLinkArr(url):
     #url = 'https://dbmap.andong.ac.kr/bbs/room_list.php'
@@ -98,6 +117,7 @@ DB_PASSWORD = os.getenv('DB_PASSWORD')
 DB_HOST = os.getenv('DB_HOST')
 DB_PORT = os.getenv('DB_PORT')
 DB_DATABASE = os.getenv('DB_DATABASE')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 
 '''
@@ -116,13 +136,73 @@ linkarr = getLinkArr(roomlink)
 fullarr = getData(linkarr)
 exportData('anubot-dbmap-room', fullarr)
 
+'''
 restaruantlink = 'https://dbmap.andong.ac.kr/bbs/restaurant_list.php'
 linkarr = getLinkArr(restaruantlink)
 fullarr = getData(linkarr)
-exportData('anubot-dbmap-restaurant', fullarr)
+#exportData('anubot-dbmap-restaurant', fullarr)
 
 tourlink = 'https://dbmap.andong.ac.kr/bbs/tour_list.php'
 linkarr = getLinkArr(tourlink)
 fullarr = getData(linkarr)
-exportData('anubot-dbmap-tour', fullarr)
+#exportData('anubot-dbmap-tour', fullarr)
+'''
 
+
+# Load the KoBERT tokenizer and model
+tokenizer = AutoTokenizer.from_pretrained("monologg/kobert")
+model = AutoModel.from_pretrained("monologg/kobert")
+
+df = pd.DataFrame(fullarr, columns=['name', 'info'])
+
+# Create a new column in the DataFrame to store the vectors
+df['name_vector'] = df['name'].apply(lambda x: model(torch.tensor(tokenizer.encode(x)).unsqueeze(0))[0][0].detach().numpy().flatten().tolist())
+df['info_vector'] = df['info'].apply(lambda x: model(torch.tensor(tokenizer.encode(x)).unsqueeze(0))[0][0].detach().numpy().flatten().tolist())
+
+df.to_csv('anubot-dbmap-room-vector.csv', index=False, encoding='utf-8-sig')
+
+#df['name_vector'] = df['name_vector'].map(lambda x: literal_eval(x))
+#df['info_vector'] = df['info_vector'].map(lambda x: literal_eval(x))
+
+print(df.head())
+
+print('Vector export complete')
+
+client = qdrant_client.QdrantClient(
+    host="localhost",
+    prefer_grpc=True,
+)
+
+vector_size1 = np.array(df["name_vector"]).size
+vector_size2 = np.array(df["info_vector"]).size
+
+client.recreate_collection(
+    collection_name='ANU_Rooms',
+    vectors_config={
+        'name': rest.VectorParams(
+            distance=rest.Distance.COSINE,
+            size=vector_size1,
+        ),
+        'info': rest.VectorParams(
+            distance=rest.Distance.COSINE,
+            size=vector_size2,
+        ),
+    }
+)
+
+client.upsert(
+    collection_name="ANU_Rooms",
+    points=[
+        rest.PointStruct(
+            id=k,
+            vector={
+                "name": v["name_vector"],
+                "info": v["info_vector"],
+            },
+            payload=v.to_dict(),
+        )
+        for k, v in df.iterrows()
+    ],
+)
+
+client.count(collection_name="ANU_Rooms")
