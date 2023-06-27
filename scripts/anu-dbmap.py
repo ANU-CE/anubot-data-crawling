@@ -9,22 +9,43 @@ import numpy as np
 import uuid
 
 #for vector database   
-import openai 
-import qdrant_client
-from transformers import AutoTokenizer, AutoModel
 import torch
-from qdrant_client.http import models as rest
-from ast import literal_eval
+
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
+from sentence_transformers import SentenceTransformer
+
+from tqdm import tqdm
 
 #for Dev
 from dotenv import load_dotenv
 import os
 
+load_dotenv(verbose=True)
+DB_USERNAME = os.getenv('DB_USERNAME')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
+DB_HOST = os.getenv('DB_HOST')
+DB_PORT = os.getenv('DB_PORT')
+DB_DATABASE = os.getenv('DB_DATABASE')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+QDRANT_URL = os.getenv('QDRANT_URL')
+QDRANT_PORT = os.getenv('QDRANT_PORT')
+QDRANT_API_KEY = os.getenv('QDRANT_API_KEY')
+
+model = SentenceTransformer(
+    'jhgan/ko-sroberta-multitask',
+    device="cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu",
+)
+
 def getData(linkarr):
     fullarr = []
     cnt=0
-    for link in linkarr:
-        print(link)
+    for link in tqdm(linkarr):
+        #print(link)
         response = requests.get(link)
         if response.status_code == 200:
             html = response.text
@@ -91,6 +112,7 @@ def exportData(dbname, fullarr):
     df.to_sql(dbname, con=engine, if_exists='replace', index=False)
     conn.close()'''
     print(f'{dbname} export complete')
+    return df
 
 def getLinkArr(url):
     #url = 'https://dbmap.andong.ac.kr/bbs/room_list.php'
@@ -110,14 +132,56 @@ def getLinkArr(url):
         linkarr.append(a["href"])
     return linkarr
 
+def vectorize(df, COLLECTION_NAME):
+    client = QdrantClient(
+        url=QDRANT_URL,
+        port=6333, 
+        api_key=QDRANT_API_KEY
+    )
 
-load_dotenv(verbose=True)
-DB_USERNAME = os.getenv('DB_USERNAME')
-DB_PASSWORD = os.getenv('DB_PASSWORD')
-DB_HOST = os.getenv('DB_HOST')
-DB_PORT = os.getenv('DB_PORT')
-DB_DATABASE = os.getenv('DB_DATABASE')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+    client.recreate_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config=models.VectorParams(
+            size=768, 
+            distance=models.Distance.COSINE
+        ),
+    )
+    vectors = []
+    batch_size = 512
+    batch = []
+
+    for doc in tqdm(df["info"].to_list()):
+        batch.append(doc)
+        
+        if len(batch) >= batch_size:
+            vectors.append(model.encode(batch))
+            batch = []
+
+    if len(batch) > 0:
+        vectors.append(model.encode(batch))
+        batch = []
+        
+    vectors = np.concatenate(vectors)
+
+    place_name = df["name"]
+
+    client.upsert(
+        collection_name=COLLECTION_NAME,
+        points=models.Batch(
+            ids=[i for i in range(df.shape[0])],
+            payloads=[
+                {
+                    "text": row["info"],
+                    "name": row["name"] + f", {place_name}",
+                }
+                for _, row in df.iterrows()
+            ],
+            vectors=[v.tolist() for v in vectors],
+        ),
+    )
+
+    #print(client.count(collection_name=COLLECTION_NAME))
+    #print(client.get_collections())
 
 
 '''
@@ -134,75 +198,18 @@ print(info)
 roomlink = 'https://dbmap.andong.ac.kr/bbs/room_list.php'
 linkarr = getLinkArr(roomlink)
 fullarr = getData(linkarr)
-exportData('anubot-dbmap-room', fullarr)
+df = exportData('anubot-dbmap-room', fullarr)
+vectorize(df, 'anubot-dbmap-room')
 
-'''
+
 restaruantlink = 'https://dbmap.andong.ac.kr/bbs/restaurant_list.php'
 linkarr = getLinkArr(restaruantlink)
 fullarr = getData(linkarr)
-#exportData('anubot-dbmap-restaurant', fullarr)
+df = exportData('anubot-dbmap-restaurant', fullarr)
+vectorize(df, 'anubot-dbmap-restaurant')
 
 tourlink = 'https://dbmap.andong.ac.kr/bbs/tour_list.php'
 linkarr = getLinkArr(tourlink)
 fullarr = getData(linkarr)
-#exportData('anubot-dbmap-tour', fullarr)
-'''
-
-
-# Load the KoBERT tokenizer and model
-tokenizer = AutoTokenizer.from_pretrained("monologg/kobert")
-model = AutoModel.from_pretrained("monologg/kobert")
-
-df = pd.DataFrame(fullarr, columns=['name', 'info'])
-
-# Create a new column in the DataFrame to store the vectors
-df['name_vector'] = df['name'].apply(lambda x: model(torch.tensor(tokenizer.encode(x)).unsqueeze(0))[0][0].detach().numpy().flatten().tolist())
-df['info_vector'] = df['info'].apply(lambda x: model(torch.tensor(tokenizer.encode(x)).unsqueeze(0))[0][0].detach().numpy().flatten().tolist())
-
-df.to_csv('anubot-dbmap-room-vector.csv', index=False, encoding='utf-8-sig')
-
-#df['name_vector'] = df['name_vector'].map(lambda x: literal_eval(x))
-#df['info_vector'] = df['info_vector'].map(lambda x: literal_eval(x))
-
-print(df.head())
-
-print('Vector export complete')
-
-client = qdrant_client.QdrantClient(
-    host="localhost",
-    prefer_grpc=True,
-)
-
-vector_size1 = np.array(df["name_vector"]).size
-vector_size2 = np.array(df["info_vector"]).size
-
-client.recreate_collection(
-    collection_name='ANU_Rooms',
-    vectors_config={
-        'name': rest.VectorParams(
-            distance=rest.Distance.COSINE,
-            size=vector_size1,
-        ),
-        'info': rest.VectorParams(
-            distance=rest.Distance.COSINE,
-            size=vector_size2,
-        ),
-    }
-)
-
-client.upsert(
-    collection_name="ANU_Rooms",
-    points=[
-        rest.PointStruct(
-            id=k,
-            vector={
-                "name": v["name_vector"],
-                "info": v["info_vector"],
-            },
-            payload=v.to_dict(),
-        )
-        for k, v in df.iterrows()
-    ],
-)
-
-client.count(collection_name="ANU_Rooms")
+df = exportData('anubot-dbmap-tour', fullarr)
+vectorize(df, 'anubot-dbmap-tour')
