@@ -30,8 +30,7 @@ COLLECTION_NAME = 'anubot-dbmap-room'
 
 qdrant_client = QdrantClient(
     url = QDRANT_URL,
-    port=6333, 
-    api_key = QDRANT_API_KEY
+    port= QDRANT_PORT, 
 )
 
 retrieval_model = SentenceTransformer('jhgan/ko-sroberta-multitask')
@@ -43,6 +42,8 @@ def build_prompt(question: str, references: list) -> tuple[str, str]:
     다음과 같은 질문을 한 친구에게 조언을 하고 있습니다.: '{question}'
 
     글에서 가장 관련성이 높은 구절을 선택하여 답변의 출처로 사용할겁니다. 당신의 대답에 그것들을 인용하세요.
+
+    가장 관련성이 높은 구절에 링크가 있는 경우 링크를 반드시 첨부하세요.
 
     References:
     """.strip()
@@ -61,7 +62,7 @@ def build_prompt(question: str, references: list) -> tuple[str, str]:
 
 def ask(question: str):
     similar_docs = qdrant_client.search(
-        collection_name='anubot-dbmap-tour',
+        collection_name='anubot-unified',
         query_vector=retrieval_model.encode(question),
         limit=3,
         append_payload=True,
@@ -70,7 +71,7 @@ def ask(question: str):
     prompt, references = build_prompt(question, similar_docs)
 
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
+        model="gpt-3.5-turbo-16k",
         messages=[
             {"role": "user", "content": prompt},
         ],
@@ -83,5 +84,5 @@ def ask(question: str):
         "references": references,
     }
 
-print(ask("괜찮은 관광지 하나만 추천해줘."))
+print(ask("안동대 맛집을 추천해줘~!"))
 print(qdrant_client.get_collections())

@@ -104,7 +104,7 @@ def getData(linkarr):
 def exportData(dbname, fullarr):
     #df = pd.DataFrame(fullarr, columns=['id', 'region', 'name', 'desc', 'info0', 'info1', 'info2', 'info3', 'info4', 'info5', 'info6', 'info7', 'info8'])
     df = pd.DataFrame(fullarr, columns=['name', 'info'])
-    df.to_csv(f'{dbname}.csv', index=False, encoding='utf-8-sig')
+    #df.to_csv(f'{dbname}.csv', index=False, encoding='utf-8-sig')
     '''# MSSQL DB에 업로드
     params = urllib.parse.quote_plus("DRIVER={ODBC Driver 17 for SQL Server};SERVER="+DB_HOST+","+DB_PORT+";DATABASE="+DB_DATABASE+";UID="+DB_USERNAME+";PWD="+DB_PASSWORD)
     engine = sqlalchemy.create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
@@ -135,17 +135,18 @@ def getLinkArr(url):
 def vectorize(df, COLLECTION_NAME):
     client = QdrantClient(
         url=QDRANT_URL,
-        port=6333, 
-        api_key=QDRANT_API_KEY
+        port=6330, 
+        #api_key=QDRANT_API_KEY
     )
 
-    client.recreate_collection(
-        collection_name=COLLECTION_NAME,
-        vectors_config=models.VectorParams(
-            size=768, 
-            distance=models.Distance.COSINE
-        ),
-    )
+    #client.recreate_collection(
+     #   collection_name=COLLECTION_NAME,
+      #  vectors_config=models.VectorParams(
+       #     size=768, 
+        #    distance=models.Distance.COSINE
+        #),
+    #)
+
     vectors = []
     batch_size = 512
     batch = []
@@ -172,7 +173,7 @@ def vectorize(df, COLLECTION_NAME):
             payloads=[
                 {
                     "text": row["info"],
-                    "name": row["name"] + f", {place_name}",
+                    "name": row["name"],
                 }
                 for _, row in df.iterrows()
             ],
@@ -199,17 +200,17 @@ roomlink = 'https://dbmap.andong.ac.kr/bbs/room_list.php'
 linkarr = getLinkArr(roomlink)
 fullarr = getData(linkarr)
 df = exportData('anubot-dbmap-room', fullarr)
-vectorize(df, 'anubot-dbmap-room')
+vectorize(df, 'anubot-unified')
 
 
 restaruantlink = 'https://dbmap.andong.ac.kr/bbs/restaurant_list.php'
 linkarr = getLinkArr(restaruantlink)
 fullarr = getData(linkarr)
 df = exportData('anubot-dbmap-restaurant', fullarr)
-vectorize(df, 'anubot-dbmap-restaurant')
+vectorize(df, 'anubot-unified')
 
 tourlink = 'https://dbmap.andong.ac.kr/bbs/tour_list.php'
 linkarr = getLinkArr(tourlink)
 fullarr = getData(linkarr)
 df = exportData('anubot-dbmap-tour', fullarr)
-vectorize(df, 'anubot-dbmap-tour')
+vectorize(df, 'anubot-unified')
