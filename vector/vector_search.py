@@ -4,13 +4,22 @@ import torch
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from sentence_transformers import SentenceTransformer
+#from sentence_transformers import SentenceTransformer
 
 from tqdm import tqdm
 
 #for Dev
 from dotenv import load_dotenv
 import os
+
+# I've set this to our new embeddings model, this can be changed to the embedding model of your choice
+EMBEDDING_MODEL = "text-embedding-ada-002"
+
+# Ignore unclosed SSL socket warnings - optional in case you get these errors
+import warnings
+
+warnings.filterwarnings(action="ignore", message="unclosed", category=ResourceWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning) 
 
 load_dotenv(verbose=True)
 
@@ -26,15 +35,14 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
 print(QDRANT_API_KEY, QDRANT_URL)
 
-COLLECTION_NAME = 'anubot-dbmap-room'
+COLLECTION_NAME = 'anubot-unified'
 
 qdrant_client = QdrantClient(
     url = QDRANT_URL,
     port= QDRANT_PORT, 
 )
 
-retrieval_model = SentenceTransformer('jhgan/ko-sroberta-multitask')
-
+vector_name = ''
 openai.api_key = OPENAI_API_KEY
 
 def build_prompt(question: str, references: list) -> tuple[str, str]:
@@ -61,9 +69,14 @@ def build_prompt(question: str, references: list) -> tuple[str, str]:
     return prompt, references_text
 
 def ask(question: str):
+    embedded_query = openai.Embedding.create(
+        input=question,
+        model=EMBEDDING_MODEL,
+    )['data'][0]['embedding']
+
     similar_docs = qdrant_client.search(
         collection_name='anubot-unified',
-        query_vector=retrieval_model.encode(question),
+        query_vector=(vector_name, embedded_query),
         limit=3,
         append_payload=True,
     )

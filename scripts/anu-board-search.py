@@ -13,7 +13,7 @@ import torch
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from sentence_transformers import SentenceTransformer
+#from sentence_transformers import SentenceTransformer
 
 from tqdm import tqdm
 
@@ -31,7 +31,7 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 QDRANT_URL = os.getenv('QDRANT_URL')
 QDRANT_PORT = os.getenv('QDRANT_PORT')
 QDRANT_API_KEY = os.getenv('QDRANT_API_KEY')
-
+'''
 model = SentenceTransformer(
     'jhgan/ko-sroberta-multitask',
     device="cuda"
@@ -39,7 +39,7 @@ model = SentenceTransformer(
     else "mps"
     if torch.backends.mps.is_available()
     else "cpu",
-)
+)'''
 
 
 def exportData(dbname, fullarr):
