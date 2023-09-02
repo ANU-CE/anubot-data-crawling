@@ -69,15 +69,14 @@ def getTableLink(pageNum):
             f'#board > div.t3.tac > table > tbody > tr:nth-child({i}) > td:nth-child(3)'
         ).text
         dept_name += tmp.replace('\r','').replace('\t','').replace('\n','')
-        dept_name += ' 전화번호'
-        arr[r][0] = dept_name
+        dept_name += '의 전화번호는 '
 
         tmp = soup.select_one(
             f'#board > div.t3.tac > table > tbody > tr:nth-child({i}) > td.tal'
         ).text
         tmp = tmp.replace('\r','').replace('\t','').replace('\n','')
         tmp = '054-820-' + tmp
-        arr[r][1] = tmp
+        arr[r] = dept_name + tmp + '입니다.'
 
     return r
 
@@ -90,14 +89,13 @@ def vectorize_by_arr(arr, COLLECTION_NAME):
 
     points = list()
     for text in tqdm(arr): 
-        embedding = openai.Embedding.create(input=text[0], model=EMBEDDING_MODEL)["data"][0]["embedding"]
+        embedding = openai.Embedding.create(input=text, model=EMBEDDING_MODEL)["data"][0]["embedding"]
         point = PointStruct(
             id=str(uuid4()),
             vector=embedding,
             payload={
-                "plain_text": text[0],
+                "plain_text": text,
                 "created_datetime": datetime.now(timezone.utc).isoformat(timespec='seconds'),
-                "name" : text[1],
             }
         )
         points.append(point)
@@ -121,7 +119,7 @@ number_count = soup.select_one(
 
 
 number_count = int(number_count.text)
-arr = [[False for col in range(2)] for row in range(number_count)]
+arr = [False for row in range(number_count)]
 for n in tqdm(range(1, number_count//10, 1)):
     r = getTableLink(n)
 

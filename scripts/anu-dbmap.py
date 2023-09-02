@@ -40,7 +40,7 @@ def getData(linkarr):
         if response.status_code == 200:
             html = response.text
             soup = BeautifulSoup(html, 'html.parser')
-        tmparr = []
+        tmp = ''
         id = linkarr[cnt].split('id=')[1]
 
         try:
@@ -48,7 +48,7 @@ def getData(linkarr):
             roomname = roomname.text
         except:
             roomname = ''
-        tmparr.append(roomname)
+        tmp = roomname + '의 정보는 다음과 같습니다.'
 
         allinfo = ''
         try:
@@ -76,9 +76,9 @@ def getData(linkarr):
             description = ''
         allinfo += description
         allinfo += '\n'
-        tmparr.append(allinfo)
+        tmp += allinfo
         cnt+=1
-        fullarr.append(tmparr)
+        fullarr.append(tmp)
     return fullarr
 
 
@@ -100,16 +100,6 @@ def getLinkArr(url):
         linkarr.append(a["href"])
     return linkarr
 
-def exportData(dbname, fullarr):
-    df = pd.DataFrame(fullarr, columns=['name', 'info'])
-
-    ''' for export as csv, disabled for CI/CD
-    df = pd.DataFrame(fullarr, columns=['id', 'region', 'name', 'desc', 'info0', 'info1', 'info2', 'info3', 'info4', 'info5', 'info6', 'info7', 'info8'])
-    df.to_csv(f'{dbname}.csv', index=False, encoding='utf-8-sig')'''
-
-    print(f'{dbname} export complete')
-    return df
-
 def recreateCollection(COLLECTION_NAME):
     client = QdrantClient(
         url=QDRANT_URL,
@@ -122,7 +112,7 @@ def recreateCollection(COLLECTION_NAME):
         vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
     )
 
-def vectorize(df, COLLECTION_NAME):
+def vectorize(fullarr, COLLECTION_NAME):
     client = QdrantClient(
         url=QDRANT_URL,
         port=6330, 
@@ -131,15 +121,14 @@ def vectorize(df, COLLECTION_NAME):
 
    
     points = list()
-    for text in tqdm(df[["name","info"]].values.tolist()): 
-        embedding = openai.Embedding.create(input=text[1], model=EMBEDDING_MODEL)["data"][0]["embedding"]
+    for text in tqdm(fullarr): 
+        embedding = openai.Embedding.create(input=text, model=EMBEDDING_MODEL)["data"][0]["embedding"]
         point = PointStruct(
             id=str(uuid4()),
             vector=embedding,
             payload={
-                "plain_text": text[1],
+                "plain_text": text,
                 "created_datetime": datetime.now(timezone.utc).isoformat(timespec='seconds'),
-                "name" : text[0],
             }
         )
         points.append(point)
@@ -161,23 +150,20 @@ info = soup.select_one('#tab1 > div:nth-child(3) > ul > li:nth-child(1)').text
 print(info)
 '''
 
-#recreateCollection('anubot-unified')
+recreateCollection('anubot-unified')
 
 roomlink = 'https://dbmap.andong.ac.kr/bbs/room_list.php'
 linkarr = getLinkArr(roomlink)
 fullarr = getData(linkarr)
-df = exportData('anubot-dbmap-room', fullarr)
-vectorize(df, 'anubot-unified')
+vectorize(fullarr, 'anubot-unified')
 
 
 restaruantlink = 'https://dbmap.andong.ac.kr/bbs/restaurant_list.php'
 linkarr = getLinkArr(restaruantlink)
 fullarr = getData(linkarr)
-df = exportData('anubot-dbmap-restaurant', fullarr)
-vectorize(df, 'anubot-unified')
+vectorize(fullarr, 'anubot-unified')
 
 tourlink = 'https://dbmap.andong.ac.kr/bbs/tour_list.php'
 linkarr = getLinkArr(tourlink)
 fullarr = getData(linkarr)
-df = exportData('anubot-dbmap-tour', fullarr)
-vectorize(df, 'anubot-unified')
+vectorize(fullarr, 'anubot-unified')

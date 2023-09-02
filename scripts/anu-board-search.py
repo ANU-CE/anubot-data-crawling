@@ -1,46 +1,36 @@
 import requests
-import datetime
+from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 import pandas as pd
-import pyodbc
-import sqlalchemy
 import urllib
 import numpy as np
-import uuid
+
+from uuid import uuid4
+from pprint import pprint
 
 #for vector database   
-import torch
-
 from qdrant_client import QdrantClient
-from qdrant_client.http import models
-from sentence_transformers import SentenceTransformer
+from qdrant_client.models import PointStruct, VectorParams, Distance
 
 from tqdm import tqdm
+
+import openai
 
 #for Dev
 from dotenv import load_dotenv
 import os
 
 load_dotenv(verbose=True)
-DB_USERNAME = os.getenv('DB_USERNAME')
-DB_PASSWORD = os.getenv('DB_PASSWORD')
-DB_HOST = os.getenv('DB_HOST')
-DB_PORT = os.getenv('DB_PORT')
-DB_DATABASE = os.getenv('DB_DATABASE')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 QDRANT_URL = os.getenv('QDRANT_URL')
 QDRANT_PORT = os.getenv('QDRANT_PORT')
 QDRANT_API_KEY = os.getenv('QDRANT_API_KEY')
 
-model = SentenceTransformer(
-    'jhgan/ko-sroberta-multitask',
-    device="cuda"
-    if torch.cuda.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
-    else "cpu",
-)
+EMBEDDING_MODEL = 'text-embedding-ada-002'
+EMBEDDING_CTX_LENGTH = 8191
+EMBEDDING_ENCODING = 'cl100k_base'
 
+openai.api_key = OPENAI_API_KEY
 
 def exportData(dbname, fullarr):
     df = pd.DataFrame(fullarr, columns=['name', 'info'])
@@ -86,63 +76,29 @@ def getData(pageArr, url):
 def vectorize(df, COLLECTION_NAME):
     client = QdrantClient(
         url=QDRANT_URL,
-        port=QDRANT_PORT, 
+        port=6330, 
         #api_key=QDRANT_API_KEY
     )
 
-    client.recreate_collection(
-        collection_name=COLLECTION_NAME,
-        vectors_config=models.VectorParams(
-            size=768, 
-            distance=models.Distance.COSINE
-        ),
-    )
-    vectors = []
-    batch_size = 512
-    batch = []
-
-    for doc in tqdm(df["info"].to_list()):
-        batch.append(doc)
-        
-        if len(batch) >= batch_size:
-            vectors.append(model.encode(batch))
-            batch = []
-
-    if len(batch) > 0:
-        vectors.append(model.encode(batch))
-        batch = []
-        
-    vectors = np.concatenate(vectors)
-
-    place_name = df["name"]
+   
+    points = list()
+    for text in tqdm(df[["name","info"]].values.tolist()): 
+        embedding = openai.Embedding.create(input=text[1], model=EMBEDDING_MODEL)["data"][0]["embedding"]
+        point = PointStruct(
+            id=str(uuid4()),
+            vector=embedding,
+            payload={
+                "plain_text": text[1],
+                "created_datetime": datetime.now(timezone.utc).isoformat(timespec='seconds'),
+                "name" : text[0],
+            }
+        )
+        points.append(point)
 
     client.upsert(
         collection_name=COLLECTION_NAME,
-        points=models.Batch(
-            ids=[i for i in range(df.shape[0])],
-            payloads=[
-                {
-                    "text": row["info"],
-                    "name": row["name"],
-                }
-                for _, row in df.iterrows()
-            ],
-            vectors=[v.tolist() for v in vectors],
-        ),
+        points=points,
     )
-
-    #print(client.count(collection_name=COLLECTION_NAME))
-    #print(client.get_collections())
-
-
-'''
-response = requests.get('https://www.anu.ac.kr/main/board/index.do?menu_idx=333&manage_idx=1&board_idx=0&old_menu_idx=0&old_manage_idx=0&old_board_idx=0&group_depth=0&parent_idx=0&group_idx=0&search.category1=107&rowCount=10&viewPage=1')
-if response.status_code == 200:
-    html = response.text
-    soup = BeautifulSoup(html, 'html.parser')
-info = soup.select_one('#board > div.board_list > table > tbody > tr:nth-child(1) > td:nth-child(2) > a')
-print(info["onclick"][10:-2])
-'''
 
 pagearr = []
 
