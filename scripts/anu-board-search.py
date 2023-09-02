@@ -56,41 +56,38 @@ def getData(pageArr, url):
         if response_board.status_code == 200:
             html_board = response_board.text
             soup_board = BeautifulSoup(html_board, 'html.parser')
-        tmparr = []
         try:
             title = soup_board.select_one('#body_content > div.board_view > div.title')
             title = title.text
         except:
             title = ''
-        tmparr.append(title)
+        tmp = title + '에 대한 정보는 다음과 같습니다. '
         try:
             info = soup_board.select_one('#body_content > div.board_view > div.cont')
             info = info.text + '링크 : ' + boardurl
         except:
             info = '' 
-        tmparr.append(info)
-        pageArr.append(tmparr)
+        tmp += info
+        pageArr.append(tmp)
 
     return pageArr
 
-def vectorize(df, COLLECTION_NAME):
+def vectorize_by_arr(arr, COLLECTION_NAME):
     client = QdrantClient(
         url=QDRANT_URL,
         port=6330, 
         #api_key=QDRANT_API_KEY
     )
 
-   
     points = list()
-    for text in tqdm(df[["name","info"]].values.tolist()): 
-        embedding = openai.Embedding.create(input=text[1], model=EMBEDDING_MODEL)["data"][0]["embedding"]
+    for text in tqdm(arr): 
+        embedding = openai.Embedding.create(input=text, model=EMBEDDING_MODEL)["data"][0]["embedding"]
         point = PointStruct(
             id=str(uuid4()),
             vector=embedding,
             payload={
-                "plain_text": text[1],
+                "plain_text": text,
                 "created_datetime": datetime.now(timezone.utc).isoformat(timespec='seconds'),
-                "name" : text[0],
             }
         )
         points.append(point)
@@ -106,5 +103,4 @@ for i in tqdm(range(1, 16, 1)):
     url = f'https://www.anu.ac.kr/main/board/index.do?menu_idx=333&manage_idx=1&board_idx=0&old_menu_idx=0&old_manage_idx=0&old_board_idx=0&group_depth=0&parent_idx=0&group_idx=0&search.category1=107&rowCount=10&viewPage={i}'
     pagearr = getData(pagearr, url)
 
-df = exportData('anubot-board-janghak', pagearr)
-vectorize(df, 'anubot-unified')
+vectorize_by_arr(pagearr, 'anubot-unified')

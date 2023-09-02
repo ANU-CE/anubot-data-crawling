@@ -86,4 +86,4 @@ def ask(question: str):
         "references": references,
     }
 
-print(ask("컴퓨터교육과의 학과사무실 전화번호를 알려줘~!"))
+print(ask("내일의 기숙사 메뉴를 알려줘~!"))
