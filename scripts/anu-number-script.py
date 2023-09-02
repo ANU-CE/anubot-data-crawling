@@ -123,10 +123,9 @@ arr = [False for row in range(number_count)]
 for n in tqdm(range(1, number_count//10, 1)):
     r = getTableLink(n)
 
+arr = [elem for elem in arr if elem != False]
 
-arr = [elem for elem in arr if elem[0] != False]
-
-#pprint(arr)
+pprint(arr)
 
 vectorize_by_arr(arr, 'anubot-unified')
 

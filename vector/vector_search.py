@@ -1,41 +1,43 @@
-import openai
+import requests
+from datetime import datetime, timezone
+from bs4 import BeautifulSoup
+import pandas as pd
+import urllib
+import numpy as np
 
-import torch
+from uuid import uuid4
+from pprint import pprint
 
+#for vector database   
 from qdrant_client import QdrantClient
-from qdrant_client.http import models
-from sentence_transformers import SentenceTransformer
+from qdrant_client.models import PointStruct, VectorParams, Distance
 
 from tqdm import tqdm
+
+import openai
 
 #for Dev
 from dotenv import load_dotenv
 import os
 
 load_dotenv(verbose=True)
-
-DB_USERNAME = os.getenv('DB_USERNAME')
-DB_PASSWORD = os.getenv('DB_PASSWORD')
-DB_HOST = os.getenv('DB_HOST')
-DB_PORT = os.getenv('DB_PORT')
-DB_DATABASE = os.getenv('DB_DATABASE')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-QDRANT_URL = os.getenv("QDRANT_URL")
-QDRANT_PORT = os.getenv("QDRANT_PORT")
-QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+QDRANT_URL = os.getenv('QDRANT_URL')
+QDRANT_PORT = os.getenv('QDRANT_PORT')
+QDRANT_API_KEY = os.getenv('QDRANT_API_KEY')
 
-print(QDRANT_API_KEY, QDRANT_URL)
+EMBEDDING_MODEL = 'text-embedding-ada-002'
+EMBEDDING_CTX_LENGTH = 8191
+EMBEDDING_ENCODING = 'cl100k_base'
 
-COLLECTION_NAME = 'anubot-dbmap-room'
+openai.api_key = OPENAI_API_KEY
+
+COLLECTION_NAME = 'anubot-unified'
 
 qdrant_client = QdrantClient(
     url = QDRANT_URL,
     port= QDRANT_PORT, 
 )
-
-retrieval_model = SentenceTransformer('jhgan/ko-sroberta-multitask')
-
-openai.api_key = OPENAI_API_KEY
 
 def build_prompt(question: str, references: list) -> tuple[str, str]:
     prompt = f"""
@@ -51,7 +53,7 @@ def build_prompt(question: str, references: list) -> tuple[str, str]:
     references_text = ""
 
     for i, reference in enumerate(references, start=1):
-        text = reference.payload["text"].strip()
+        text = reference.payload["plain_text"].strip()
         references_text += f"\n[{i}]: {text}"
 
     prompt += (
@@ -63,7 +65,7 @@ def build_prompt(question: str, references: list) -> tuple[str, str]:
 def ask(question: str):
     similar_docs = qdrant_client.search(
         collection_name='anubot-unified',
-        query_vector=retrieval_model.encode(question),
+        query_vector=openai.Embedding.create(input=question, model=EMBEDDING_MODEL)["data"][0]["embedding"],
         limit=3,
         append_payload=True,
     )
@@ -84,5 +86,4 @@ def ask(question: str):
         "references": references,
     }
 
-print(ask("안동대 맛집을 추천해줘~!"))
-print(qdrant_client.get_collections())
+print(ask("컴퓨터교육과의 학과사무실 전화번호를 알려줘~!"))
