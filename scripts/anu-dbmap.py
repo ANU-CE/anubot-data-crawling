@@ -1,21 +1,20 @@
 import requests
-import datetime
+from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 import pandas as pd
-import pyodbc
-import sqlalchemy
 import urllib
 import numpy as np
-import uuid
+
+from uuid import uuid4
+from pprint import pprint
 
 #for vector database   
-import torch
-
 from qdrant_client import QdrantClient
-from qdrant_client.http import models
-from sentence_transformers import SentenceTransformer
+from qdrant_client.models import PointStruct, VectorParams, Distance
 
 from tqdm import tqdm
+
+import openai
 
 #for Dev
 from dotenv import load_dotenv
@@ -32,37 +31,28 @@ QDRANT_URL = os.getenv('QDRANT_URL')
 QDRANT_PORT = os.getenv('QDRANT_PORT')
 QDRANT_API_KEY = os.getenv('QDRANT_API_KEY')
 
-model = SentenceTransformer(
-    'jhgan/ko-sroberta-multitask',
-    device="cuda"
-    if torch.cuda.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
-    else "cpu",
-)
+EMBEDDING_MODEL = 'text-embedding-ada-002'
+EMBEDDING_CTX_LENGTH = 8191
+EMBEDDING_ENCODING = 'cl100k_base'
+
+openai.api_key = OPENAI_API_KEY
 
 def getData(linkarr):
     fullarr = []
     cnt=0
     for link in tqdm(linkarr):
-        #print(link)
         response = requests.get(link)
         if response.status_code == 200:
             html = response.text
             soup = BeautifulSoup(html, 'html.parser')
         tmparr = []
         id = linkarr[cnt].split('id=')[1]
-        #tmparr.append(id)
 
         try:
             roomname = soup.select_one('#thema_wrapper > div.at-container > div > div > div > div.item_view_box > div.item_info > div.item_title')
             roomname = roomname.text
-            #region = roomname.split(' ')[0]
-            #roomname = roomname.split(' ')[1]
         except:
-            #region = ''
             roomname = ''
-        #tmparr.append(region)
         tmparr.append(roomname)
 
         allinfo = ''
@@ -79,16 +69,11 @@ def getData(linkarr):
         while True:
             try:
                 info = soup.select_one(f'#tab1 > div:nth-child(3) > ul > li:nth-child({tmpcnt})').text
-                #tmparr.append(info)
                 allinfo += info
                 allinfo += '\n'
                 tmpcnt+=1
             except:
                 break
-            '''
-        if tmpcnt < 9:
-            for i in range(tmpcnt, 9):
-                tmparr.append('')'''
         try:    
             description = soup.select('#tab1 > div:nth-child(6)')
             description = description.text
@@ -101,18 +86,6 @@ def getData(linkarr):
         fullarr.append(tmparr)
     return fullarr
 
-def exportData(dbname, fullarr):
-    #df = pd.DataFrame(fullarr, columns=['id', 'region', 'name', 'desc', 'info0', 'info1', 'info2', 'info3', 'info4', 'info5', 'info6', 'info7', 'info8'])
-    df = pd.DataFrame(fullarr, columns=['name', 'info'])
-    #df.to_csv(f'{dbname}.csv', index=False, encoding='utf-8-sig')
-    '''# MSSQL DB에 업로드
-    params = urllib.parse.quote_plus("DRIVER={ODBC Driver 17 for SQL Server};SERVER="+DB_HOST+","+DB_PORT+";DATABASE="+DB_DATABASE+";UID="+DB_USERNAME+";PWD="+DB_PASSWORD)
-    engine = sqlalchemy.create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
-    conn = engine.connect()
-    df.to_sql(dbname, con=engine, if_exists='replace', index=False)
-    conn.close()'''
-    print(f'{dbname} export complete')
-    return df
 
 def getLinkArr(url):
     #url = 'https://dbmap.andong.ac.kr/bbs/room_list.php'
@@ -132,6 +105,28 @@ def getLinkArr(url):
         linkarr.append(a["href"])
     return linkarr
 
+def exportData(dbname, fullarr):
+    df = pd.DataFrame(fullarr, columns=['name', 'info'])
+
+    ''' for export as csv, disabled for CI/CD
+    df = pd.DataFrame(fullarr, columns=['id', 'region', 'name', 'desc', 'info0', 'info1', 'info2', 'info3', 'info4', 'info5', 'info6', 'info7', 'info8'])
+    df.to_csv(f'{dbname}.csv', index=False, encoding='utf-8-sig')'''
+
+    print(f'{dbname} export complete')
+    return df
+
+def recreateCollection(COLLECTION_NAME):
+    client = QdrantClient(
+        url=QDRANT_URL,
+        port=6330, 
+        #api_key=QDRANT_API_KEY
+    )
+    
+    client.recreate_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
+    )
+
 def vectorize(df, COLLECTION_NAME):
     client = QdrantClient(
         url=QDRANT_URL,
@@ -139,50 +134,27 @@ def vectorize(df, COLLECTION_NAME):
         #api_key=QDRANT_API_KEY
     )
 
-    #client.recreate_collection(
-     #   collection_name=COLLECTION_NAME,
-      #  vectors_config=models.VectorParams(
-       #     size=768, 
-        #    distance=models.Distance.COSINE
-        #),
-    #)
-
-    vectors = []
-    batch_size = 512
-    batch = []
-
-    for doc in tqdm(df["info"].to_list()):
-        batch.append(doc)
-        
-        if len(batch) >= batch_size:
-            vectors.append(model.encode(batch))
-            batch = []
-
-    if len(batch) > 0:
-        vectors.append(model.encode(batch))
-        batch = []
-        
-    vectors = np.concatenate(vectors)
-
-    place_name = df["name"]
+   
+    points = list()
+    for text in tqdm(df[["name","info"]].values.tolist()): 
+        embedding = openai.Embedding.create(input=text[0], model=EMBEDDING_MODEL)["data"][0]["embedding"]
+        point = PointStruct(
+            id=str(uuid4()),
+            vector=embedding,
+            payload={
+                "plain_text": text[1],
+                "created_datetime": datetime.now(timezone.utc).isoformat(timespec='seconds'),
+                "name" : text[0],
+            }
+        )
+        points.append(point)
 
     client.upsert(
         collection_name=COLLECTION_NAME,
-        points=models.Batch(
-            ids=[i for i in range(df.shape[0])],
-            payloads=[
-                {
-                    "text": row["info"],
-                    "name": row["name"],
-                }
-                for _, row in df.iterrows()
-            ],
-            vectors=[v.tolist() for v in vectors],
-        ),
+        points=points,
     )
 
-    #print(client.count(collection_name=COLLECTION_NAME))
-    #print(client.get_collections())
+    #pprint(client.get_collections().collections) 
 
 
 '''
@@ -192,9 +164,9 @@ if response.status_code == 200:
     soup = BeautifulSoup(html, 'html.parser')
 info = soup.select_one('#tab1 > div:nth-child(3) > ul > li:nth-child(1)').text
 print(info)
-
-
 '''
+
+recreateCollection('anubot-unified')
 
 roomlink = 'https://dbmap.andong.ac.kr/bbs/room_list.php'
 linkarr = getLinkArr(roomlink)
