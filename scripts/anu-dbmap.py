@@ -21,11 +21,6 @@ from dotenv import load_dotenv
 import os
 
 load_dotenv(verbose=True)
-DB_USERNAME = os.getenv('DB_USERNAME')
-DB_PASSWORD = os.getenv('DB_PASSWORD')
-DB_HOST = os.getenv('DB_HOST')
-DB_PORT = os.getenv('DB_PORT')
-DB_DATABASE = os.getenv('DB_DATABASE')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 QDRANT_URL = os.getenv('QDRANT_URL')
 QDRANT_PORT = os.getenv('QDRANT_PORT')
@@ -137,7 +132,7 @@ def vectorize(df, COLLECTION_NAME):
    
     points = list()
     for text in tqdm(df[["name","info"]].values.tolist()): 
-        embedding = openai.Embedding.create(input=text[0], model=EMBEDDING_MODEL)["data"][0]["embedding"]
+        embedding = openai.Embedding.create(input=text[1], model=EMBEDDING_MODEL)["data"][0]["embedding"]
         point = PointStruct(
             id=str(uuid4()),
             vector=embedding,
@@ -166,7 +161,7 @@ info = soup.select_one('#tab1 > div:nth-child(3) > ul > li:nth-child(1)').text
 print(info)
 '''
 
-recreateCollection('anubot-unified')
+#recreateCollection('anubot-unified')
 
 roomlink = 'https://dbmap.andong.ac.kr/bbs/room_list.php'
 linkarr = getLinkArr(roomlink)

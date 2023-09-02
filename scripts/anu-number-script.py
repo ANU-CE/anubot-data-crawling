@@ -3,22 +3,38 @@
 # Description: 안동대학교 전화번호부 데이터 수집 및 내보내기
 
 import requests
+from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 import pandas as pd
-import sqlalchemy
 import urllib
+import numpy as np
 
+from uuid import uuid4
+from pprint import pprint
+
+#for vector database   
+from qdrant_client import QdrantClient
+from qdrant_client.models import PointStruct, VectorParams, Distance
+
+from tqdm import tqdm
+
+import openai
 
 #for Dev
 from dotenv import load_dotenv
 import os
 
 load_dotenv(verbose=True)
-DB_USERNAME = os.getenv('DB_USERNAME')
-DB_PASSWORD = os.getenv('DB_PASSWORD')
-DB_HOST = os.getenv('DB_HOST')
-DB_PORT = os.getenv('DB_PORT')
-DB_DATABASE = os.getenv('DB_DATABASE')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+QDRANT_URL = os.getenv('QDRANT_URL')
+QDRANT_PORT = os.getenv('QDRANT_PORT')
+QDRANT_API_KEY = os.getenv('QDRANT_API_KEY')
+
+EMBEDDING_MODEL = 'text-embedding-ada-002'
+EMBEDDING_CTX_LENGTH = 8191
+EMBEDDING_ENCODING = 'cl100k_base'
+
+openai.api_key = OPENAI_API_KEY
 
 #board > div.t3.tac > table > tbody > tr:nth-child(8) > td:nth-child(1) - 대학본부
 #board > div.t3.tac > table > tbody > tr:nth-child(8) > td:nth-child(2) > span - 교무처/교무과
@@ -35,23 +51,61 @@ def getTableLink(pageNum):
     for i in range(1,11,1):
         r = (pageNum-1)*10+i
         #print(r, end=' ')
-        arr[r][0] = soup.select_one(
+        dept_name = ''
+
+        tmp = soup.select_one(
             f'#board > div.t3.tac > table > tbody > tr:nth-child({i}) > td:nth-child(1)'
         ).text
-        arr[r][0] = arr[r][0].replace('\r','').replace('\t','').replace('\n','')
-        arr[r][1] = soup.select_one(
+        tmp += ' '
+        dept_name += tmp.replace('\r','').replace('\t','').replace('\n','')
+
+        tmp = soup.select_one(
             f'#board > div.t3.tac > table > tbody > tr:nth-child({i}) > td:nth-child(2) > span'
         ).text
-        arr[r][1] = arr[r][1].replace('\r','').replace('\t','').replace('\n','')
-        arr[r][2] = soup.select_one(
+        tmp += ' '
+        dept_name += tmp.replace('\r','').replace('\t','').replace('\n','')
+
+        tmp = soup.select_one(
             f'#board > div.t3.tac > table > tbody > tr:nth-child({i}) > td:nth-child(3)'
         ).text
-        arr[r][2] = arr[r][2].replace('\r','').replace('\t','').replace('\n','')
-        arr[r][3] = soup.select_one(
+        dept_name += tmp.replace('\r','').replace('\t','').replace('\n','')
+        dept_name += ' 전화번호'
+        arr[r][0] = dept_name
+
+        tmp = soup.select_one(
             f'#board > div.t3.tac > table > tbody > tr:nth-child({i}) > td.tal'
         ).text
-        arr[r][3] = arr[r][3].replace('\r','').replace('\t','').replace('\n','')
+        tmp = tmp.replace('\r','').replace('\t','').replace('\n','')
+        tmp = '054-820-' + tmp
+        arr[r][1] = tmp
+
     return r
+
+def vectorize_by_arr(arr, COLLECTION_NAME):
+    client = QdrantClient(
+        url=QDRANT_URL,
+        port=6330, 
+        #api_key=QDRANT_API_KEY
+    )
+
+    points = list()
+    for text in tqdm(arr): 
+        embedding = openai.Embedding.create(input=text[0], model=EMBEDDING_MODEL)["data"][0]["embedding"]
+        point = PointStruct(
+            id=str(uuid4()),
+            vector=embedding,
+            payload={
+                "plain_text": text[0],
+                "created_datetime": datetime.now(timezone.utc).isoformat(timespec='seconds'),
+                "name" : text[1],
+            }
+        )
+        points.append(point)
+
+    client.upsert(
+        collection_name=COLLECTION_NAME,
+        points=points,
+    )
 
 url = 'https://www.andong.ac.kr/main/board/index.do?menu_idx=104&manage_idx=45'
 
@@ -67,19 +121,19 @@ number_count = soup.select_one(
 
 
 number_count = int(number_count.text)
-arr = [[False for col in range(4)] for row in range(number_count)]
-for n in range(1, number_count//10, 1):
+arr = [[False for col in range(2)] for row in range(number_count)]
+for n in tqdm(range(1, number_count//10, 1)):
     r = getTableLink(n)
 
+
+arr = [elem for elem in arr if elem[0] != False]
+
+#pprint(arr)
+
+vectorize_by_arr(arr, 'anubot-unified')
+
+'''
 df = pd.DataFrame(arr, columns=['구분', '부서/학과', '직책/성명', '전화번호'])
 df.to_csv('anubot_numb.csv', encoding='utf-8-sig',index=True ,header=None)
 print(f'\n총 {r}개의 데이터를 수집했습니다. / 내보내기 완료.')
-
-print(DB_DATABASE, DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD)
-
-# MSSQL DB에 업로드
-params = urllib.parse.quote_plus("DRIVER={ODBC Driver 17 for SQL Server};SERVER="+DB_HOST+","+DB_PORT+";DATABASE="+DB_DATABASE+";UID="+DB_USERNAME+";PWD="+DB_PASSWORD)
-engine = sqlalchemy.create_engine("mssql+pyodbc:///?odbc_connect=%s" % params)
-conn = engine.connect()
-df.to_sql('anu-number', con=engine, if_exists='replace', index=False)
-conn.close()
+'''
