@@ -37,12 +37,8 @@ jobs:
     - name: Run dorm's menu.py
       run: |
         python scripts/anu-restartuant-menu.py
-    - name: Commit CSV file
-      uses: EndBug/add-and-commit@v9
-      with:
-        message: "Auto-commit csv file"
-        add: |
-          anudorm_menu.csv
-        force: true
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        QDRANT_PORT: ${{ secrets.QDRANT_PORT }}
+        QDRANT_URL: ${{ secrets.QDRANT_URL }}
