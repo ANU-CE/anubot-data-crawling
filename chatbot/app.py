@@ -62,7 +62,7 @@ def build_prompt(question: str, references: list) -> tuple[str, str]:
 
 
 async def prompt_ask(question: str, callback_url: str):
-    similar_docs = await qdrant_client.search(
+    similar_docs = qdrant_client.search(
         collection_name='anubot-unified',
         query_vector=openai.Embedding.create(input=question, model=EMBEDDING_MODEL)["data"][0]["embedding"],
         limit=3,
@@ -71,7 +71,7 @@ async def prompt_ask(question: str, callback_url: str):
 
     prompt, references = build_prompt(question, similar_docs)
 
-    response = await openai.ChatCompletion.create(
+    response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo-16k",
         messages=[
             {"role": "user", "content": prompt},
@@ -103,7 +103,7 @@ def default_route():
     return 'Hello World!'
 
 @app.route('/api/v1/ask', methods=['POST'])
-async def ask():
+def ask():
     request_data = request.json.get('userRequest', {})
     callback_url = request_data.get('callbackUrl')
     try:
